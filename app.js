@@ -126,7 +126,7 @@ function switchView(id) {
 // ── Card parsing ──────────────────────────────────────────────────────────────
 function parseCards(text) {
   return text.split(/\n+/).map(l => l.trim()).filter(Boolean).map(line => {
-    const parts = line.split(/\s*(?:\||\t|,|，|;|；)\s*/).map(p => p.trim()).filter(Boolean);
+    const parts = line.split(/\s*(?:\||\t)\s*/).map(p => p.trim()).filter(Boolean);
     return {
       id: crypto.randomUUID(),
       french: parts[0] || "", chinese: parts[1] || "",
