@@ -149,7 +149,7 @@ function cardDir(card) {
 function getCardContent(card) {
   const isFwd = cardDir(card) === "zh-fr";
   return {
-    kicker:  isFwd ? "中 → 法" : "法 → 中",
+    kicker:  isFwd ? "ZH → FR" : "FR → ZH",
     prompt:  isFwd ? card.chinese  : card.french,
     answer:  isFwd ? card.french   : card.chinese,
     example: [card.exampleFr, card.exampleZh].filter(Boolean).join("\n"),
@@ -227,7 +227,7 @@ function renderCard() {
     el.flipArea.classList.remove("hidden");
     el.spellArea.classList.add("hidden");
     el.cardKicker.textContent = "";
-    el.cardMain.textContent   = "请先导入或选择词表";
+    el.cardMain.textContent   = "Sélectionnez ou importez une liste";
     el.cardExtra.textContent  = "";
     el.cardExtra.className    = "card-extra";
     el.againBtn.classList.add("hidden");
@@ -246,13 +246,13 @@ function renderCard() {
     if (!state.isBack) {
       el.cardKicker.textContent = kicker;
       el.cardMain.textContent   = prompt;
-      el.cardExtra.textContent  = "点击卡片查看答案";
+      el.cardExtra.textContent  = "Appuyer pour voir la réponse";
       el.cardExtra.className    = "card-extra is-hint";
       el.againBtn.classList.add("hidden");
       el.knowBtn.classList.add("hidden");
       el.flipBtn.classList.remove("hidden");
     } else {
-      el.cardKicker.textContent = "答案";
+      el.cardKicker.textContent = "Réponse";
       el.cardMain.textContent   = answer;
       el.cardExtra.textContent  = example;
       el.cardExtra.className    = "card-extra";
@@ -289,7 +289,7 @@ function renderCard() {
       el.spellResult.innerHTML =
         `<span class="result-icon">✗</span>` +
         `<span class="result-answer">${esc(answer)}</span>` +
-        `<div class="result-yours">你的答案：${esc(state.spellUserInput)}</div>` +
+        `<div class="result-yours">Votre réponse : ${esc(state.spellUserInput)}</div>` +
         (example ? `<div class="result-example">${esc(example)}</div>` : "");
     }
     el.spellResult.classList.remove("hidden");
@@ -313,12 +313,12 @@ function showCompletion() {
 function renderSets() {
   el.activeSetSelect.innerHTML = "";
   if (!state.sets.length) {
-    el.activeSetSelect.innerHTML = '<option value="">暂无词表——请先导入</option>';
+    el.activeSetSelect.innerHTML = '<option value="">Aucune liste — importez d\'abord</option>';
   } else {
     for (const s of state.sets) {
       const opt = document.createElement("option");
       opt.value = s.id;
-      opt.textContent = `${s.name}（${s.cards.length} 张）`;
+      opt.textContent = `${s.name} (${s.cards.length})`;
       opt.selected = s.id === state.activeSetId;
       el.activeSetSelect.append(opt);
     }
@@ -326,7 +326,7 @@ function renderSets() {
 
   el.setsList.innerHTML = "";
   if (!state.sets.length) {
-    el.setsList.innerHTML = '<div class="preview-item"><span class="item-title">还没有词表</span><span class="item-meta">去「导入」粘贴词表内容。</span></div>';
+    el.setsList.innerHTML = '<div class="preview-item"><span class="item-title">Aucune liste</span><span class="item-meta">Allez dans « Importer » pour ajouter du contenu.</span></div>';
     return;
   }
   for (const s of state.sets) {
@@ -335,9 +335,9 @@ function renderSets() {
     div.innerHTML = `
       <div class="set-item-info">
         <div class="item-title">${esc(s.name)}</div>
-        <div class="item-meta">${s.cards.length} 张 · ${new Date(s.updatedAt).toLocaleString()}</div>
+        <div class="item-meta">${s.cards.length} cartes · ${new Date(s.updatedAt).toLocaleString()}</div>
       </div>
-      <button class="set-delete" type="button" data-delete-set="${s.id}">删除</button>`;
+      <button class="set-delete" type="button" data-delete-set="${s.id}">Supprimer</button>`;
     el.setsList.append(div);
   }
 }
@@ -345,7 +345,7 @@ function renderSets() {
 function renderPreview(cards) {
   el.previewList.innerHTML = "";
   if (!cards.length) {
-    el.previewList.innerHTML = '<div class="preview-item"><span class="item-title">未识别到卡片</span><span class="item-meta">每行格式：法语 | 中文</span></div>';
+    el.previewList.innerHTML = '<div class="preview-item"><span class="item-title">Aucune carte reconnue</span><span class="item-meta">Format : français | traduction</span></div>';
     return;
   }
   for (const c of cards.slice(0, 10)) {
@@ -370,11 +370,11 @@ async function refresh() {
 
 async function saveImportedSet() {
   const cards = parseCards(el.importText.value);
-  if (!cards.length) { toast("未识别到卡片，请检查格式"); return; }
+  if (!cards.length) { toast("Aucune carte reconnue — vérifiez le format"); return; }
   const now = Date.now();
   const set = {
     id: crypto.randomUUID(),
-    name: el.setNameInput.value.trim() || "未命名词表",
+    name: el.setNameInput.value.trim() || "Sans titre",
     cards, createdAt: now, updatedAt: now,
   };
   await putSet(set);
@@ -382,7 +382,7 @@ async function saveImportedSet() {
   await refresh();
   startSession();
   switchView("reviewView");
-  toast(`已保存 ${cards.length} 张卡片`);
+  toast(`${cards.length} cartes enregistrées`);
 }
 
 async function exportData() {
@@ -403,7 +403,7 @@ async function importData(file) {
   const sets = Array.isArray(payload.sets) ? payload.sets : [];
   for (const s of sets) await putSet({ ...s, id: s.id || crypto.randomUUID() });
   await refresh();
-  toast(`已导入 ${sets.length} 个词表`);
+  toast(`${sets.length} liste(s) importée(s)`);
 }
 
 // ── Spell check ───────────────────────────────────────────────────────────────
@@ -411,7 +411,7 @@ async function checkSpell() {
   const card = state.sessionDeck[0];
   if (!card) return;
   const input = el.spellInput.value.trim();
-  if (!input) { toast("请先输入答案"); return; }
+  if (!input) { toast("Veuillez saisir une réponse"); return; }
   const { answer } = getCardContent(card);
   state.spellUserInput = input;
   // Strict: case-insensitive, accent-sensitive
@@ -482,7 +482,7 @@ el.restartBtn.addEventListener("click", startSession);
 el.previewBtn.addEventListener("click", () => renderPreview(parseCards(el.importText.value)));
 el.saveSetBtn.addEventListener("click", saveImportedSet);
 el.newSampleBtn.addEventListener("click", async () => {
-  el.setNameInput.value = "通勤示例";
+  el.setNameInput.value = "Exemple";
   el.importText.value =
 `attendre | 等待 | J'attends le bus. | 我在等公交。
 descendre | 下去；下车 | Je descends à la prochaine station. | 我下一站下车。
@@ -500,14 +500,14 @@ el.setsList.addEventListener("click", async e => {
   if (state.activeSetId === id) state.activeSetId = null;
   await refresh();
   startSession();
-  toast("已删除词表");
+  toast("Liste supprimée");
 });
 
 // Backup
 el.exportBtn.addEventListener("click", exportData);
 el.importFile.addEventListener("change", e => {
   const [file] = e.target.files;
-  if (file) importData(file).catch(() => toast("导入失败，请检查文件格式"));
+  if (file) importData(file).catch(() => toast("Échec de l'importation — vérifiez le fichier"));
 });
 
 // ── Service Worker ────────────────────────────────────────────────────────────
@@ -515,7 +515,7 @@ async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
   try {
     await navigator.serviceWorker.register("./sw.js");
-    el.storageStatus.textContent = "离线可用";
+    el.storageStatus.textContent = "Hors ligne ✓";
     el.storageStatus.classList.add("is-online");
   } catch { /* silently fail */ }
 }
@@ -535,4 +535,4 @@ async function init() {
   await registerSW();
 }
 
-init().catch(err => { console.error(err); toast("初始化失败，请刷新重试"); });
+init().catch(err => { console.error(err); toast("Erreur d'initialisation — actualisez la page"); });
