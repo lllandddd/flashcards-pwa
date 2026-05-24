@@ -530,7 +530,6 @@ async function init() {
   $$("[data-review-mode]").forEach(b => b.classList.toggle("is-active", b.dataset.reviewMode === state.reviewMode));
   $$("[data-dir]").forEach(b => b.classList.toggle("is-active", b.dataset.dir === state.direction));
 
-  renderPreview(parseCards(el.importText.value));
   await refresh();
   startSession();
   await registerSW();

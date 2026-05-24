@@ -1,12 +1,12 @@
 {
-  "name": "French Cards",
-  "short_name": "Cards",
+  "name": "Fiches FR",
+  "short_name": "Fiches",
   "description": "Offline French flashcards with local storage.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f7f4ee",
-  "theme_color": "#f7f4ee",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "./icon.svg",
