@@ -50,8 +50,12 @@ const state = {
   reviewMode: "flip",   // "flip" | "spell"
   direction: "zh-fr",   // "zh-fr" | "fr-zh" | "mixed"
   // session
-  sessionDeck: [],
-  sessionTotal: 0,
+  sessionDeck: [],      // cards left in current round
+  sessionQueue: [],     // "again" cards waiting for next round
+  sessionTotal: 0,      // total cards (fixed for whole session)
+  sessionRound: 1,      // which round we're on
+  sessionRoundSize: 0,  // cards at start of current round
+  sessionRoundDone: 0,  // cards processed in current round
   sessionStats: { known: 0, again: 0 },
   // flip state
   isBack: false,
@@ -160,20 +164,26 @@ function getCardContent(card) {
 function startSession() {
   const set = currentSet();
   if (!set || !set.cards.length) {
-    state.sessionDeck  = [];
-    state.sessionTotal = 0;
+    state.sessionDeck = []; state.sessionQueue = [];
+    state.sessionTotal = 0; state.sessionRound = 1;
+    state.sessionRoundSize = 0; state.sessionRoundDone = 0;
     state.sessionStats = { known:0, again:0 };
     state.isBack = false; state.spellResult = null;
     renderCard(); return;
   }
   // Hardest first (lowest known – again score)
-  state.sessionDeck = [...set.cards].sort((a,b) => {
+  const sorted = [...set.cards].sort((a,b) => {
     const aS = (a.stats?.known||0) - (a.stats?.again||0);
     const bS = (b.stats?.known||0) - (b.stats?.again||0);
     return aS - bS;
   });
-  state.sessionTotal = state.sessionDeck.length;
-  state.sessionStats = { known:0, again:0 };
+  state.sessionDeck     = sorted;
+  state.sessionQueue    = [];
+  state.sessionTotal    = sorted.length;
+  state.sessionRound    = 1;
+  state.sessionRoundSize = sorted.length;
+  state.sessionRoundDone = 0;
+  state.sessionStats    = { known:0, again:0 };
   state.isBack = false; state.spellResult = null;
   renderCard();
 }
@@ -188,32 +198,53 @@ async function markCard(kind) {
   card.stats.lastReviewed = Date.now();
   set.updatedAt = Date.now();
   await putSet(set);
-  state.sessionStats[kind]++;
 }
 
 function advanceCard(kind) {
-  if (kind === "known") {
-    state.sessionDeck.shift();
-  } else {
-    const c = state.sessionDeck.shift();
-    state.sessionDeck.push(c);
-  }
+  const card = state.sessionDeck.shift();
+  state.sessionRoundDone++;
   state.isBack = false;
   state.spellResult = null;
   state.spellUserInput = "";
 
-  if (kind === "known" && state.sessionDeck.length === 0) {
-    showCompletion(); return;
+  if (kind === "known") {
+    state.sessionStats.known++;
+    // Card exits permanently — don't push to queue
+  } else {
+    state.sessionStats.again++;
+    state.sessionQueue.push(card);  // comes back next round
+  }
+
+  if (state.sessionDeck.length === 0) {
+    if (state.sessionQueue.length === 0) {
+      // All cards mastered — session complete
+      showCompletion();
+    } else {
+      // Start next round with only the "again" cards
+      state.sessionDeck     = [...state.sessionQueue];
+      state.sessionQueue    = [];
+      state.sessionRound++;
+      state.sessionRoundSize = state.sessionDeck.length;
+      state.sessionRoundDone = 0;
+      renderCard();
+    }
+    return;
   }
   renderCard();
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderProgress() {
-  const known = state.sessionStats.known;
-  const total = state.sessionTotal;
-  el.progressFill.style.width = total ? (known / total * 100) + "%" : "0%";
-  el.progressText.textContent = total ? `${known} / ${total}` : "0 / 0";
+  // Bar = current round completion (resets each round, always moves forward)
+  const pct = state.sessionRoundSize
+    ? (state.sessionRoundDone / state.sessionRoundSize) * 100
+    : 0;
+  el.progressFill.style.width = pct + "%";
+  // Text = total mastery + round indicator if > round 1
+  const roundLabel = state.sessionRound > 1 ? ` · Tour ${state.sessionRound}` : "";
+  el.progressText.textContent = state.sessionTotal
+    ? `${state.sessionStats.known} / ${state.sessionTotal}${roundLabel}`
+    : "0 / 0";
 }
 
 function renderCard() {
@@ -305,7 +336,7 @@ function showCompletion() {
   el.completionScreen.classList.remove("hidden");
   const again = state.sessionStats.again;
   el.statTotal.textContent = state.sessionTotal;
-  el.statAgain.textContent = again;
+  el.statAgain.textContent = state.sessionRound > 1 ? state.sessionRound - 1 : again;
   // Grey out "0 次重练"
   el.completionScreen.querySelector(".stat-again").classList.toggle("no-again", again === 0);
   renderProgress();
