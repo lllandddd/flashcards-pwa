@@ -2,6 +2,8 @@
 const DB_NAME = "french-cards-db";
 const DB_VERSION = 1;
 const SETTINGS_KEY = "french-cards-settings";
+const SESSION_KEY  = "french-cards-session";
+const SESSION_TTL  = 48 * 60 * 60 * 1000; // 48 hours
 let _db;
 
 function openDb() {
@@ -112,6 +114,50 @@ function saveSettings() {
   }));
 }
 
+// ── Session persistence ───────────────────────────────────────────────────────
+function saveSession() {
+  if (!state.sessionTotal) return;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({
+    activeSetId:      state.activeSetId,
+    deckIds:          state.sessionDeck.map(c => c.id),
+    queueIds:         state.sessionQueue.map(c => c.id),
+    sessionTotal:     state.sessionTotal,
+    sessionRound:     state.sessionRound,
+    sessionRoundSize: state.sessionRoundSize,
+    sessionRoundDone: state.sessionRoundDone,
+    sessionStats:     state.sessionStats,
+    savedAt:          Date.now(),
+  }));
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function restoreSession(set) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY));
+    if (!saved) return false;
+    if (saved.activeSetId !== set.id) return false;
+    if (Date.now() - saved.savedAt > SESSION_TTL) return false;
+
+    const cardMap = Object.fromEntries(set.cards.map(c => [c.id, c]));
+    const deck  = saved.deckIds.map(id => cardMap[id]).filter(Boolean);
+    const queue = saved.queueIds.map(id => cardMap[id]).filter(Boolean);
+    if (deck.length === 0 && queue.length === 0) return false;
+
+    state.sessionDeck      = deck;
+    state.sessionQueue     = queue;
+    state.sessionTotal     = saved.sessionTotal;
+    state.sessionRound     = saved.sessionRound;
+    state.sessionRoundSize = saved.sessionRoundSize;
+    state.sessionRoundDone = saved.sessionRoundDone;
+    state.sessionStats     = saved.sessionStats;
+    state.isBack = false; state.spellResult = null;
+    return true;
+  } catch { return false; }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c =>
@@ -161,7 +207,7 @@ function getCardContent(card) {
   };
 }
 
-function startSession() {
+function startSession(forceNew = false) {
   const set = currentSet();
   if (!set || !set.cards.length) {
     state.sessionDeck = []; state.sessionQueue = [];
@@ -169,22 +215,31 @@ function startSession() {
     state.sessionRoundSize = 0; state.sessionRoundDone = 0;
     state.sessionStats = { known:0, again:0 };
     state.isBack = false; state.spellResult = null;
+    clearSession(); renderCard(); return;
+  }
+
+  // Try to restore a saved session (unless user explicitly restarted)
+  if (!forceNew && restoreSession(set)) {
+    toast("Session restaurée ↩");
     renderCard(); return;
   }
+
+  clearSession();
   // Hardest first (lowest known – again score)
   const sorted = [...set.cards].sort((a,b) => {
     const aS = (a.stats?.known||0) - (a.stats?.again||0);
     const bS = (b.stats?.known||0) - (b.stats?.again||0);
     return aS - bS;
   });
-  state.sessionDeck     = sorted;
-  state.sessionQueue    = [];
-  state.sessionTotal    = sorted.length;
-  state.sessionRound    = 1;
+  state.sessionDeck      = sorted;
+  state.sessionQueue     = [];
+  state.sessionTotal     = sorted.length;
+  state.sessionRound     = 1;
   state.sessionRoundSize = sorted.length;
   state.sessionRoundDone = 0;
-  state.sessionStats    = { known:0, again:0 };
+  state.sessionStats     = { known:0, again:0 };
   state.isBack = false; state.spellResult = null;
+  saveSession();
   renderCard();
 }
 
@@ -218,6 +273,7 @@ function advanceCard(kind) {
   if (state.sessionDeck.length === 0) {
     if (state.sessionQueue.length === 0) {
       // All cards mastered — session complete
+      clearSession();
       showCompletion();
     } else {
       // Start next round with only the "again" cards
@@ -226,10 +282,12 @@ function advanceCard(kind) {
       state.sessionRound++;
       state.sessionRoundSize = state.sessionDeck.length;
       state.sessionRoundDone = 0;
+      saveSession();
       renderCard();
     }
     return;
   }
+  saveSession();
   renderCard();
 }
 
@@ -555,7 +613,7 @@ el.nextBtn.addEventListener("click",  async () => {
 });
 
 // Completion
-el.restartBtn.addEventListener("click", startSession);
+el.restartBtn.addEventListener("click", () => startSession(true));
 
 // Import
 el.previewBtn.addEventListener("click", () => renderPreview(parseCards(el.importText.value)));
