@@ -1,406 +1,539 @@
+// ── IndexedDB ─────────────────────────────────────────────────────────────────
 const DB_NAME = "french-cards-db";
 const DB_VERSION = 1;
 const SETTINGS_KEY = "french-cards-settings";
-
-const state = {
-  sets: [],
-  activeSetId: null,
-  deck: [],
-  cardIndex: 0,
-  isBack: false,
-  mode: "zh-fr"
-};
-
-const els = {
-  tabs: document.querySelectorAll(".tab"),
-  views: document.querySelectorAll(".view"),
-  activeSetSelect: document.querySelector("#activeSetSelect"),
-  storageStatus: document.querySelector("#storageStatus"),
-  progressText: document.querySelector("#progressText"),
-  dueText: document.querySelector("#dueText"),
-  cardButton: document.querySelector("#cardButton"),
-  cardKicker: document.querySelector("#cardKicker"),
-  cardMain: document.querySelector("#cardMain"),
-  cardExtra: document.querySelector("#cardExtra"),
-  againBtn: document.querySelector("#againBtn"),
-  flipBtn: document.querySelector("#flipBtn"),
-  knowBtn: document.querySelector("#knowBtn"),
-  setNameInput: document.querySelector("#setNameInput"),
-  importText: document.querySelector("#importText"),
-  previewBtn: document.querySelector("#previewBtn"),
-  saveSetBtn: document.querySelector("#saveSetBtn"),
-  previewList: document.querySelector("#previewList"),
-  setsList: document.querySelector("#setsList"),
-  newSampleBtn: document.querySelector("#newSampleBtn"),
-  exportBtn: document.querySelector("#exportBtn"),
-  importFile: document.querySelector("#importFile"),
-  toast: document.querySelector("#toast"),
-  modeButtons: document.querySelectorAll("[data-mode]")
-};
-
-let dbPromise;
+let _db;
 
 function openDb() {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      db.createObjectStore("sets", { keyPath: "id" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  return dbPromise;
-}
-
-async function tx(storeName, mode, callback) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeName, mode);
-    const store = transaction.objectStore(storeName);
-    const result = callback(store);
-    transaction.oncomplete = () => resolve(result);
-    transaction.onerror = () => reject(transaction.error);
+  if (_db) return Promise.resolve(_db);
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => req.result.createObjectStore("sets", { keyPath: "id" });
+    req.onsuccess = () => { _db = req.result; res(_db); };
+    req.onerror   = () => rej(req.error);
   });
 }
 
 async function getAllSets() {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("sets", "readonly");
-    const request = transaction.objectStore("sets").getAll();
-    request.onsuccess = () => resolve(request.result.sort((a, b) => b.updatedAt - a.updatedAt));
-    request.onerror = () => reject(request.error);
+  return new Promise((res, rej) => {
+    const req = db.transaction("sets","readonly").objectStore("sets").getAll();
+    req.onsuccess = () => res(req.result.sort((a,b) => b.updatedAt - a.updatedAt));
+    req.onerror   = () => rej(req.error);
   });
 }
 
-function putSet(set) {
-  return tx("sets", "readwrite", store => store.put(set));
+async function putSet(set) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("sets","readwrite");
+    tx.objectStore("sets").put(set);
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+  });
 }
 
-function deleteSet(id) {
-  return tx("sets", "readwrite", store => store.delete(id));
+async function deleteSet(id) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("sets","readwrite");
+    tx.objectStore("sets").delete(id);
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+  });
 }
 
+// ── State ─────────────────────────────────────────────────────────────────────
+const state = {
+  sets: [],
+  activeSetId: null,
+  reviewMode: "flip",   // "flip" | "spell"
+  direction: "zh-fr",   // "zh-fr" | "fr-zh" | "mixed"
+  // session
+  sessionDeck: [],
+  sessionTotal: 0,
+  sessionStats: { known: 0, again: 0 },
+  // flip state
+  isBack: false,
+  // spell state
+  spellResult: null,    // null | "correct" | "wrong"
+  spellUserInput: "",
+};
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const $$ = s => document.querySelectorAll(s);
+
+const el = {
+  tabs: $$(".tab"), views: $$(".view"),
+  storageStatus: $("storageStatus"),
+  activeSetSelect: $("activeSetSelect"),
+  progressFill: $("progressFill"), progressText: $("progressText"),
+  // flip
+  flipArea: $("flipArea"),
+  cardButton: $("cardButton"), cardKicker: $("cardKicker"),
+  cardMain: $("cardMain"), cardExtra: $("cardExtra"),
+  againBtn: $("againBtn"), flipBtn: $("flipBtn"), knowBtn: $("knowBtn"),
+  // spell
+  spellArea: $("spellArea"),
+  spellKicker: $("spellKicker"), spellPrompt: $("spellPrompt"),
+  spellInput: $("spellInput"), spellResult: $("spellResult"),
+  checkBtn: $("checkBtn"), nextBtn: $("nextBtn"),
+  // completion
+  completionScreen: $("completionScreen"),
+  statTotal: $("statTotal"), statAgain: $("statAgain"),
+  restartBtn: $("restartBtn"),
+  // import
+  setNameInput: $("setNameInput"), importText: $("importText"),
+  previewBtn: $("previewBtn"), saveSetBtn: $("saveSetBtn"),
+  previewList: $("previewList"),
+  // sets
+  setsList: $("setsList"), newSampleBtn: $("newSampleBtn"),
+  // backup
+  exportBtn: $("exportBtn"), importFile: $("importFile"),
+  // toast
+  toast: $("toast"),
+};
+
+// ── Settings ──────────────────────────────────────────────────────────────────
 function loadSettings() {
-  try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; }
 }
-
 function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
     activeSetId: state.activeSetId,
-    mode: state.mode
+    reviewMode: state.reviewMode,
+    direction: state.direction,
   }));
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"})[c]);
+}
+function toast(msg) {
+  el.toast.textContent = msg;
+  el.toast.classList.add("is-visible");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.toast.classList.remove("is-visible"), 2200);
+}
+function switchView(id) {
+  el.tabs.forEach(t => t.classList.toggle("is-active", t.dataset.view === id));
+  el.views.forEach(v => v.classList.toggle("is-active", v.id === id));
+}
+
+// ── Card parsing ──────────────────────────────────────────────────────────────
 function parseCards(text) {
-  return text
-    .split(/\n+/)
-    .map(line => line.trim())
-    .filter(Boolean)
-    .map(line => {
-      const parts = line
-        .split(/\s*(?:\||\t|,|，|;|；)\s*/)
-        .map(part => part.trim())
-        .filter(Boolean);
-      return {
-        id: crypto.randomUUID(),
-        french: parts[0] || "",
-        chinese: parts[1] || "",
-        exampleFr: parts[2] || "",
-        exampleZh: parts[3] || "",
-        stats: { seen: 0, known: 0, again: 0, lastReviewed: null }
-      };
-    })
-    .filter(card => card.french && card.chinese);
+  return text.split(/\n+/).map(l => l.trim()).filter(Boolean).map(line => {
+    const parts = line.split(/\s*(?:\||\t|,|，|;|；)\s*/).map(p => p.trim()).filter(Boolean);
+    return {
+      id: crypto.randomUUID(),
+      french: parts[0] || "", chinese: parts[1] || "",
+      exampleFr: parts[2] || "", exampleZh: parts[3] || "",
+      stats: { seen:0, known:0, again:0, lastReviewed:null },
+    };
+  }).filter(c => c.french && c.chinese);
 }
 
-function dueCards(set) {
-  if (!set) return [];
-  return [...set.cards].sort((a, b) => {
-    const aScore = (a.stats?.known || 0) - (a.stats?.again || 0);
-    const bScore = (b.stats?.known || 0) - (b.stats?.again || 0);
-    return aScore - bScore;
-  });
-}
-
+// ── Session management ────────────────────────────────────────────────────────
 function currentSet() {
-  return state.sets.find(set => set.id === state.activeSetId) || null;
+  return state.sets.find(s => s.id === state.activeSetId) || null;
 }
 
-function currentCard() {
-  return state.deck[state.cardIndex] || null;
-}
-
-function cardDirection() {
-  if (state.mode !== "mixed") return state.mode;
-  const card = currentCard();
-  if (!card) return "zh-fr";
+function cardDir(card) {
+  if (state.direction !== "mixed") return state.direction;
   return card.id.charCodeAt(0) % 2 === 0 ? "zh-fr" : "fr-zh";
 }
 
-function renderCard() {
+function getCardContent(card) {
+  const isFwd = cardDir(card) === "zh-fr";
+  return {
+    kicker:  isFwd ? "中 → 法" : "法 → 中",
+    prompt:  isFwd ? card.chinese  : card.french,
+    answer:  isFwd ? card.french   : card.chinese,
+    example: [card.exampleFr, card.exampleZh].filter(Boolean).join("\n"),
+  };
+}
+
+function startSession() {
   const set = currentSet();
-  state.deck = dueCards(set);
-  if (state.cardIndex >= state.deck.length) state.cardIndex = 0;
+  if (!set || !set.cards.length) {
+    state.sessionDeck  = [];
+    state.sessionTotal = 0;
+    state.sessionStats = { known:0, again:0 };
+    state.isBack = false; state.spellResult = null;
+    renderCard(); return;
+  }
+  // Hardest first (lowest known – again score)
+  state.sessionDeck = [...set.cards].sort((a,b) => {
+    const aS = (a.stats?.known||0) - (a.stats?.again||0);
+    const bS = (b.stats?.known||0) - (b.stats?.again||0);
+    return aS - bS;
+  });
+  state.sessionTotal = state.sessionDeck.length;
+  state.sessionStats = { known:0, again:0 };
+  state.isBack = false; state.spellResult = null;
+  renderCard();
+}
 
-  const card = currentCard();
-  els.progressText.textContent = `${state.deck.length ? state.cardIndex + 1 : 0} / ${state.deck.length}`;
-  els.dueText.textContent = `今日待复习 ${state.deck.length}`;
+async function markCard(kind) {
+  const card = state.sessionDeck[0];
+  const set  = currentSet();
+  if (!card || !set) return;
+  card.stats = card.stats || { seen:0, known:0, again:0, lastReviewed:null };
+  card.stats.seen++;
+  card.stats[kind]++;
+  card.stats.lastReviewed = Date.now();
+  set.updatedAt = Date.now();
+  await putSet(set);
+  state.sessionStats[kind]++;
+}
 
+function advanceCard(kind) {
+  if (kind === "known") {
+    state.sessionDeck.shift();
+  } else {
+    const c = state.sessionDeck.shift();
+    state.sessionDeck.push(c);
+  }
+  state.isBack = false;
+  state.spellResult = null;
+  state.spellUserInput = "";
+
+  if (kind === "known" && state.sessionDeck.length === 0) {
+    showCompletion(); return;
+  }
+  renderCard();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderProgress() {
+  const known = state.sessionStats.known;
+  const total = state.sessionTotal;
+  el.progressFill.style.width = total ? (known / total * 100) + "%" : "0%";
+  el.progressText.textContent = total ? `${known} / ${total}` : "0 / 0";
+}
+
+function renderCard() {
+  renderProgress();
+  el.completionScreen.classList.add("hidden");
+
+  const card   = state.sessionDeck[0];
+  const isFlip = state.reviewMode === "flip";
+
+  // ── empty state ──
   if (!card) {
-    els.cardKicker.textContent = "准备开始";
-    els.cardMain.textContent = "导入一组词表后开始复习";
-    els.cardExtra.textContent = "";
+    el.flipArea.classList.remove("hidden");
+    el.spellArea.classList.add("hidden");
+    el.cardKicker.textContent = "";
+    el.cardMain.textContent   = "请先导入或选择词表";
+    el.cardExtra.textContent  = "";
+    el.cardExtra.className    = "card-extra";
+    el.againBtn.classList.add("hidden");
+    el.knowBtn.classList.add("hidden");
+    el.flipBtn.classList.add("hidden");
     return;
   }
 
-  const direction = cardDirection();
-  const front = direction === "zh-fr" ? card.chinese : card.french;
-  const backMain = direction === "zh-fr" ? card.french : card.chinese;
-  const example = direction === "zh-fr"
-    ? [card.exampleFr, card.exampleZh].filter(Boolean).join("\n")
-    : [card.exampleZh, card.exampleFr].filter(Boolean).join("\n");
+  const { kicker, prompt, answer, example } = getCardContent(card);
 
-  els.cardKicker.textContent = state.isBack ? "答案" : (direction === "zh-fr" ? "中→法" : "法→中");
-  els.cardMain.textContent = state.isBack ? backMain : front;
-  els.cardExtra.textContent = state.isBack ? example : "点卡片或按“翻面”查看答案";
+  // ── flip mode ──
+  if (isFlip) {
+    el.flipArea.classList.remove("hidden");
+    el.spellArea.classList.add("hidden");
+
+    if (!state.isBack) {
+      el.cardKicker.textContent = kicker;
+      el.cardMain.textContent   = prompt;
+      el.cardExtra.textContent  = "点击卡片查看答案";
+      el.cardExtra.className    = "card-extra is-hint";
+      el.againBtn.classList.add("hidden");
+      el.knowBtn.classList.add("hidden");
+      el.flipBtn.classList.remove("hidden");
+    } else {
+      el.cardKicker.textContent = "答案";
+      el.cardMain.textContent   = answer;
+      el.cardExtra.textContent  = example;
+      el.cardExtra.className    = "card-extra";
+      el.againBtn.classList.remove("hidden");
+      el.knowBtn.classList.remove("hidden");
+      el.flipBtn.classList.add("hidden");
+    }
+    return;
+  }
+
+  // ── spell mode ──
+  el.flipArea.classList.add("hidden");
+  el.spellArea.classList.remove("hidden");
+  el.spellKicker.textContent = kicker;
+  el.spellPrompt.textContent = prompt;
+
+  if (state.spellResult === null) {
+    el.spellInput.value    = "";
+    el.spellInput.className = "";
+    el.spellInput.disabled  = false;
+    el.spellResult.classList.add("hidden");
+    el.checkBtn.classList.remove("hidden");
+    el.nextBtn.classList.add("hidden");
+  } else {
+    el.spellInput.className = state.spellResult === "correct" ? "is-correct" : "is-wrong";
+    el.spellInput.disabled  = true;
+    el.spellResult.className = "spell-result " + (state.spellResult === "correct" ? "is-correct" : "is-wrong");
+    if (state.spellResult === "correct") {
+      el.spellResult.innerHTML =
+        `<span class="result-icon">✓</span>` +
+        `<span class="result-answer">${esc(answer)}</span>` +
+        (example ? `<div class="result-example">${esc(example)}</div>` : "");
+    } else {
+      el.spellResult.innerHTML =
+        `<span class="result-icon">✗</span>` +
+        `<span class="result-answer">${esc(answer)}</span>` +
+        `<div class="result-yours">你的答案：${esc(state.spellUserInput)}</div>` +
+        (example ? `<div class="result-example">${esc(example)}</div>` : "");
+    }
+    el.spellResult.classList.remove("hidden");
+    el.checkBtn.classList.add("hidden");
+    el.nextBtn.classList.remove("hidden");
+  }
+}
+
+function showCompletion() {
+  el.flipArea.classList.add("hidden");
+  el.spellArea.classList.add("hidden");
+  el.completionScreen.classList.remove("hidden");
+  const again = state.sessionStats.again;
+  el.statTotal.textContent = state.sessionTotal;
+  el.statAgain.textContent = again;
+  // Grey out "0 次重练"
+  el.completionScreen.querySelector(".stat-again").classList.toggle("no-again", again === 0);
+  renderProgress();
 }
 
 function renderSets() {
-  els.activeSetSelect.innerHTML = "";
+  el.activeSetSelect.innerHTML = "";
   if (!state.sets.length) {
-    els.activeSetSelect.innerHTML = '<option value="">暂无词表</option>';
+    el.activeSetSelect.innerHTML = '<option value="">暂无词表——请先导入</option>';
   } else {
-    for (const set of state.sets) {
-      const option = document.createElement("option");
-      option.value = set.id;
-      option.textContent = `${set.name} (${set.cards.length})`;
-      option.selected = set.id === state.activeSetId;
-      els.activeSetSelect.append(option);
+    for (const s of state.sets) {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = `${s.name}（${s.cards.length} 张）`;
+      opt.selected = s.id === state.activeSetId;
+      el.activeSetSelect.append(opt);
     }
   }
 
-  els.setsList.innerHTML = "";
+  el.setsList.innerHTML = "";
   if (!state.sets.length) {
-    els.setsList.innerHTML = '<div class="preview-item"><span class="item-title">还没有词表</span><span class="item-meta">去“导入”粘贴一组内容。</span></div>';
+    el.setsList.innerHTML = '<div class="preview-item"><span class="item-title">还没有词表</span><span class="item-meta">去「导入」粘贴词表内容。</span></div>';
     return;
   }
-
-  for (const set of state.sets) {
-    const item = document.createElement("div");
-    item.className = "set-item";
-    item.innerHTML = `
-      <div>
-        <div class="item-title">${escapeHtml(set.name)}</div>
-        <div class="item-meta">${set.cards.length} 张卡片 · ${new Date(set.updatedAt).toLocaleString()}</div>
+  for (const s of state.sets) {
+    const div = document.createElement("div");
+    div.className = "set-item";
+    div.innerHTML = `
+      <div class="set-item-info">
+        <div class="item-title">${esc(s.name)}</div>
+        <div class="item-meta">${s.cards.length} 张 · ${new Date(s.updatedAt).toLocaleString()}</div>
       </div>
-      <button class="secondary danger" type="button" data-delete-set="${set.id}">删除</button>
-    `;
-    els.setsList.append(item);
+      <button class="set-delete" type="button" data-delete-set="${s.id}">删除</button>`;
+    el.setsList.append(div);
   }
 }
 
 function renderPreview(cards) {
-  els.previewList.innerHTML = "";
+  el.previewList.innerHTML = "";
   if (!cards.length) {
-    els.previewList.innerHTML = '<div class="preview-item"><span class="item-title">没有识别到卡片</span><span class="item-meta">每行至少需要“法语 | 中文”。</span></div>';
+    el.previewList.innerHTML = '<div class="preview-item"><span class="item-title">未识别到卡片</span><span class="item-meta">每行格式：法语 | 中文</span></div>';
     return;
   }
-
-  for (const card of cards.slice(0, 8)) {
-    const item = document.createElement("div");
-    item.className = "preview-item";
-    item.innerHTML = `
-      <span class="item-title">${escapeHtml(card.french)} · ${escapeHtml(card.chinese)}</span>
-      <span class="item-meta">${escapeHtml([card.exampleFr, card.exampleZh].filter(Boolean).join(" / "))}</span>
-    `;
-    els.previewList.append(item);
+  for (const c of cards.slice(0, 10)) {
+    const div = document.createElement("div");
+    div.className = "preview-item";
+    div.innerHTML = `
+      <span class="item-title">${esc(c.french)} · ${esc(c.chinese)}</span>
+      <span class="item-meta">${esc([c.exampleFr, c.exampleZh].filter(Boolean).join(" / "))}</span>`;
+    el.previewList.append(div);
   }
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  }[char]));
-}
-
-function toast(message) {
-  els.toast.textContent = message;
-  els.toast.classList.add("is-visible");
-  window.clearTimeout(toast.timer);
-  toast.timer = window.setTimeout(() => els.toast.classList.remove("is-visible"), 2200);
-}
-
-function switchView(id) {
-  els.tabs.forEach(tab => tab.classList.toggle("is-active", tab.dataset.view === id));
-  els.views.forEach(view => view.classList.toggle("is-active", view.id === id));
-}
-
+// ── Data actions ──────────────────────────────────────────────────────────────
 async function refresh() {
   state.sets = await getAllSets();
-  if (!state.activeSetId || !state.sets.some(set => set.id === state.activeSetId)) {
+  if (!state.activeSetId || !state.sets.some(s => s.id === state.activeSetId)) {
     state.activeSetId = state.sets[0]?.id || null;
   }
   renderSets();
-  renderCard();
   saveSettings();
 }
 
 async function saveImportedSet() {
-  const cards = parseCards(els.importText.value);
-  if (!cards.length) {
-    toast("没有识别到可保存的卡片");
-    return;
-  }
-
+  const cards = parseCards(el.importText.value);
+  if (!cards.length) { toast("未识别到卡片，请检查格式"); return; }
   const now = Date.now();
   const set = {
     id: crypto.randomUUID(),
-    name: els.setNameInput.value.trim() || "未命名词表",
-    cards,
-    createdAt: now,
-    updatedAt: now
+    name: el.setNameInput.value.trim() || "未命名词表",
+    cards, createdAt: now, updatedAt: now,
   };
   await putSet(set);
   state.activeSetId = set.id;
-  state.cardIndex = 0;
-  state.isBack = false;
   await refresh();
+  startSession();
   switchView("reviewView");
   toast(`已保存 ${cards.length} 张卡片`);
 }
 
-async function updateCardStats(kind) {
-  const set = currentSet();
-  const card = currentCard();
-  if (!set || !card) return;
-  card.stats = card.stats || { seen: 0, known: 0, again: 0, lastReviewed: null };
-  card.stats.seen += 1;
-  card.stats[kind] += 1;
-  card.stats.lastReviewed = Date.now();
-  set.updatedAt = Date.now();
-  await putSet(set);
-  state.cardIndex = Math.min(state.cardIndex + 1, state.deck.length - 1);
-  if (state.cardIndex === state.deck.length - 1 && state.deck.length > 1) {
-    state.cardIndex = (state.cardIndex + 1) % state.deck.length;
-  }
-  state.isBack = false;
-  await refresh();
-}
-
-async function addSampleSet() {
-  els.setNameInput.value = "通勤示例";
-  els.importText.value = `attendre | 等待 | J'attends le bus. | 我在等公交。
-descendre | 下去；下车 | Je descends à la prochaine station. | 我下一站下车。
-retard | 迟到；延误 | Le train a du retard. | 火车晚点了。
-billet | 票 | J'ai acheté un billet. | 我买了一张票。`;
-  await saveImportedSet();
-}
-
 async function exportData() {
-  const payload = {
-    app: "French Cards",
-    exportedAt: new Date().toISOString(),
-    sets: state.sets
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const blob = new Blob(
+    [JSON.stringify({ app:"French Cards", exportedAt:new Date().toISOString(), sets:state.sets }, null, 2)],
+    { type:"application/json" }
+  );
   const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `french-cards-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `french-cards-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
   URL.revokeObjectURL(url);
 }
 
 async function importData(file) {
   const payload = JSON.parse(await file.text());
   const sets = Array.isArray(payload.sets) ? payload.sets : [];
-  for (const set of sets) {
-    await putSet({ ...set, id: set.id || crypto.randomUUID(), updatedAt: Date.now() });
-  }
+  for (const s of sets) await putSet({ ...s, id: s.id || crypto.randomUUID() });
   await refresh();
   toast(`已导入 ${sets.length} 个词表`);
 }
 
-async function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) {
-    els.storageStatus.textContent = "本地保存";
-    return;
-  }
-  try {
-    await navigator.serviceWorker.register("./sw.js");
-    els.storageStatus.textContent = "离线可用";
-  } catch {
-    els.storageStatus.textContent = "本地保存";
-  }
+// ── Spell check ───────────────────────────────────────────────────────────────
+async function checkSpell() {
+  const card = state.sessionDeck[0];
+  if (!card) return;
+  const input = el.spellInput.value.trim();
+  if (!input) { toast("请先输入答案"); return; }
+  const { answer } = getCardContent(card);
+  state.spellUserInput = input;
+  // Strict: case-insensitive, accent-sensitive
+  state.spellResult = input.toLowerCase() === answer.toLowerCase() ? "correct" : "wrong";
+  renderCard();
 }
 
-els.tabs.forEach(tab => tab.addEventListener("click", () => switchView(tab.dataset.view)));
-els.modeButtons.forEach(button => {
-  button.addEventListener("click", () => {
-    state.mode = button.dataset.mode;
-    state.isBack = false;
-    els.modeButtons.forEach(item => item.classList.toggle("is-active", item === button));
-    saveSettings();
-    renderCard();
-  });
-});
+// ── Event listeners ───────────────────────────────────────────────────────────
 
-els.activeSetSelect.addEventListener("change", () => {
-  state.activeSetId = els.activeSetSelect.value;
-  state.cardIndex = 0;
-  state.isBack = false;
+// Tabs
+el.tabs.forEach(t => t.addEventListener("click", () => switchView(t.dataset.view)));
+
+// Review mode
+$$("[data-review-mode]").forEach(btn => btn.addEventListener("click", () => {
+  state.reviewMode = btn.dataset.reviewMode;
+  $$("[data-review-mode]").forEach(b => b.classList.toggle("is-active", b === btn));
+  state.isBack = false; state.spellResult = null;
+  saveSettings(); renderCard();
+}));
+
+// Direction
+$$("[data-dir]").forEach(btn => btn.addEventListener("click", () => {
+  state.direction = btn.dataset.dir;
+  $$("[data-dir]").forEach(b => b.classList.toggle("is-active", b === btn));
+  state.isBack = false; state.spellResult = null;
+  saveSettings(); renderCard();
+}));
+
+// Set select
+el.activeSetSelect.addEventListener("change", () => {
+  state.activeSetId = el.activeSetSelect.value;
   saveSettings();
-  renderCard();
+  startSession();
 });
 
-els.cardButton.addEventListener("click", () => {
-  state.isBack = !state.isBack;
-  renderCard();
+// Flip mode
+el.cardButton.addEventListener("click", () => {
+  if (!state.isBack && state.sessionDeck[0]) { state.isBack = true; renderCard(); }
 });
-els.flipBtn.addEventListener("click", () => {
-  state.isBack = !state.isBack;
-  renderCard();
+el.flipBtn.addEventListener("click", () => {
+  if (!state.isBack && state.sessionDeck[0]) { state.isBack = true; renderCard(); }
 });
-els.againBtn.addEventListener("click", () => updateCardStats("again"));
-els.knowBtn.addEventListener("click", () => updateCardStats("known"));
-els.previewBtn.addEventListener("click", () => renderPreview(parseCards(els.importText.value)));
-els.saveSetBtn.addEventListener("click", saveImportedSet);
-els.newSampleBtn.addEventListener("click", addSampleSet);
-els.exportBtn.addEventListener("click", exportData);
-els.importFile.addEventListener("change", event => {
-  const [file] = event.target.files;
-  if (file) importData(file).catch(() => toast("导入失败，文件格式不对"));
+el.againBtn.addEventListener("click", async () => { await markCard("again"); advanceCard("again"); });
+el.knowBtn.addEventListener("click",  async () => { await markCard("known"); advanceCard("known"); });
+
+// Spell mode
+el.spellInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && state.spellResult === null) checkSpell();
 });
-els.setsList.addEventListener("click", async event => {
-  const button = event.target.closest("[data-delete-set]");
-  if (!button) return;
-  await deleteSet(button.dataset.deleteSet);
+$$(".accent-btn").forEach(btn => btn.addEventListener("click", () => {
+  const inp = el.spellInput;
+  const pos = inp.selectionStart;
+  inp.value = inp.value.slice(0, pos) + btn.dataset.char + inp.value.slice(pos);
+  inp.selectionStart = inp.selectionEnd = pos + 1;
+  inp.focus();
+}));
+el.checkBtn.addEventListener("click", checkSpell);
+el.nextBtn.addEventListener("click",  async () => {
+  const kind = state.spellResult === "correct" ? "known" : "again";
+  await markCard(kind);
+  advanceCard(kind);
+});
+
+// Completion
+el.restartBtn.addEventListener("click", startSession);
+
+// Import
+el.previewBtn.addEventListener("click", () => renderPreview(parseCards(el.importText.value)));
+el.saveSetBtn.addEventListener("click", saveImportedSet);
+el.newSampleBtn.addEventListener("click", async () => {
+  el.setNameInput.value = "通勤示例";
+  el.importText.value =
+`attendre | 等待 | J'attends le bus. | 我在等公交。
+descendre | 下去；下车 | Je descends à la prochaine station. | 我下一站下车。
+retard | 迟到；延误 | Le train a du retard. | 火车晚点了。
+billet | 票 | J'ai acheté un billet. | 我买了一张票。`;
+  await saveImportedSet();
+});
+
+// Sets list
+el.setsList.addEventListener("click", async e => {
+  const btn = e.target.closest("[data-delete-set]");
+  if (!btn) return;
+  const id = btn.dataset.deleteSet;
+  await deleteSet(id);
+  if (state.activeSetId === id) state.activeSetId = null;
   await refresh();
+  startSession();
   toast("已删除词表");
 });
 
-async function init() {
-  const settings = loadSettings();
-  state.activeSetId = settings.activeSetId || null;
-  state.mode = settings.mode || "zh-fr";
-  els.modeButtons.forEach(item => item.classList.toggle("is-active", item.dataset.mode === state.mode));
-  renderPreview(parseCards(els.importText.value));
-  await refresh();
-  await registerServiceWorker();
+// Backup
+el.exportBtn.addEventListener("click", exportData);
+el.importFile.addEventListener("change", e => {
+  const [file] = e.target.files;
+  if (file) importData(file).catch(() => toast("导入失败，请检查文件格式"));
+});
+
+// ── Service Worker ────────────────────────────────────────────────────────────
+async function registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("./sw.js");
+    el.storageStatus.textContent = "离线可用";
+    el.storageStatus.classList.add("is-online");
+  } catch { /* silently fail */ }
 }
 
-init().catch(error => {
-  console.error(error);
-  toast("初始化失败");
-});
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  const s = loadSettings();
+  state.activeSetId = s.activeSetId || null;
+  state.reviewMode  = s.reviewMode  || "flip";
+  state.direction   = s.direction   || "zh-fr";
+
+  $$("[data-review-mode]").forEach(b => b.classList.toggle("is-active", b.dataset.reviewMode === state.reviewMode));
+  $$("[data-dir]").forEach(b => b.classList.toggle("is-active", b.dataset.dir === state.direction));
+
+  renderPreview(parseCards(el.importText.value));
+  await refresh();
+  startSession();
+  await registerSW();
+}
+
+init().catch(err => { console.error(err); toast("初始化失败，请刷新重试"); });

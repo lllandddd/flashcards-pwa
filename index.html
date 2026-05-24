@@ -1,111 +1,177 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#f7f4ee">
-    <title>French Cards</title>
-    <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css">
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">离线复习</p>
-          <h1>French Cards</h1>
-        </div>
-        <div class="storage-pill" id="storageStatus">本地保存</div>
-      </header>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>French Cards</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <h1>French Cards</h1>
+      <div class="storage-pill" id="storageStatus">本地保存</div>
+    </header>
 
-      <nav class="tabs" aria-label="主要功能">
-        <button class="tab is-active" data-view="reviewView">复习</button>
-        <button class="tab" data-view="importView">导入</button>
-        <button class="tab" data-view="setsView">词表</button>
-        <button class="tab" data-view="backupView">备份</button>
-      </nav>
+    <nav class="tabs" aria-label="主要功能">
+      <button class="tab is-active" data-view="reviewView">复习</button>
+      <button class="tab" data-view="importView">导入</button>
+      <button class="tab" data-view="setsView">词表</button>
+      <button class="tab" data-view="backupView">备份</button>
+    </nav>
 
-      <main>
-        <section id="reviewView" class="view is-active">
-          <div class="review-toolbar">
-            <label>
-              词表
-              <select id="activeSetSelect"></select>
-            </label>
-            <div class="segmented" aria-label="复习方向">
-              <button data-mode="zh-fr" class="is-active">中→法</button>
-              <button data-mode="fr-zh">法→中</button>
-              <button data-mode="mixed">混合</button>
+    <main>
+      <!-- ── 复习 ── -->
+      <section id="reviewView" class="view is-active">
+        <div class="review-toolbar">
+          <div class="select-wrap">
+            <select id="activeSetSelect" aria-label="选择词表"></select>
+          </div>
+          <div class="toolbar-row">
+            <div class="segmented" role="group" aria-label="练习模式">
+              <button data-review-mode="flip" class="is-active">翻面</button>
+              <button data-review-mode="spell">拼写</button>
+            </div>
+            <div class="segmented" role="group" aria-label="方向">
+              <button data-dir="zh-fr" class="is-active">中→法</button>
+              <button data-dir="fr-zh">法→中</button>
+              <button data-dir="mixed">混合</button>
             </div>
           </div>
+        </div>
 
-          <div class="progress-row">
-            <span id="progressText">0 / 0</span>
-            <span id="dueText">今日待复习 0</span>
+        <div class="progress-row">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <span id="progressText" class="progress-label">0 / 0</span>
+        </div>
+
+        <!-- 翻面区 -->
+        <div id="flipArea">
+          <button id="cardButton" class="flashcard" type="button">
+            <span class="card-kicker" id="cardKicker"></span>
+            <span class="card-main" id="cardMain">选择词表后开始复习</span>
+            <span class="card-extra" id="cardExtra"></span>
+          </button>
+          <div class="actions" id="flipActions">
+            <button id="againBtn" class="btn btn-again hidden" type="button">再练</button>
+            <button id="flipBtn"  class="btn btn-primary" type="button">翻面</button>
+            <button id="knowBtn"  class="btn btn-know hidden" type="button">会了 ✓</button>
           </div>
+        </div>
 
-          <article class="card-stage">
-            <button id="cardButton" class="flashcard" type="button">
-              <span class="card-kicker" id="cardKicker">准备开始</span>
-              <span class="card-main" id="cardMain">导入一组词表后开始复习</span>
-              <span class="card-extra" id="cardExtra"></span>
-            </button>
-          </article>
-
+        <!-- 拼写区 -->
+        <div id="spellArea" class="hidden">
+          <div class="spell-card">
+            <div class="card-kicker" id="spellKicker"></div>
+            <div class="card-main"  id="spellPrompt"></div>
+          </div>
+          <div class="spell-input-group">
+            <input id="spellInput" type="text"
+              autocomplete="off" autocorrect="off"
+              autocapitalize="none" spellcheck="false"
+              placeholder="输入答案…">
+            <div class="accent-row" aria-label="法语特殊字符">
+              <button type="button" class="accent-btn" data-char="é">é</button>
+              <button type="button" class="accent-btn" data-char="è">è</button>
+              <button type="button" class="accent-btn" data-char="ê">ê</button>
+              <button type="button" class="accent-btn" data-char="ë">ë</button>
+              <button type="button" class="accent-btn" data-char="à">à</button>
+              <button type="button" class="accent-btn" data-char="â">â</button>
+              <button type="button" class="accent-btn" data-char="ù">ù</button>
+              <button type="button" class="accent-btn" data-char="û">û</button>
+              <button type="button" class="accent-btn" data-char="ç">ç</button>
+              <button type="button" class="accent-btn" data-char="î">î</button>
+              <button type="button" class="accent-btn" data-char="ï">ï</button>
+              <button type="button" class="accent-btn" data-char="ô">ô</button>
+              <button type="button" class="accent-btn" data-char="œ">œ</button>
+              <button type="button" class="accent-btn" data-char="æ">æ</button>
+            </div>
+          </div>
+          <div id="spellResult" class="spell-result hidden"></div>
           <div class="actions">
-            <button id="againBtn" class="secondary" type="button">再复习</button>
-            <button id="flipBtn" class="primary" type="button">翻面</button>
-            <button id="knowBtn" class="secondary" type="button">我会了</button>
+            <button id="checkBtn" class="btn btn-primary"           type="button">检查</button>
+            <button id="nextBtn"  class="btn btn-secondary hidden"  type="button">下一张 →</button>
           </div>
-        </section>
+        </div>
 
-        <section id="importView" class="view">
-          <div class="panel">
-            <label>
-              词表名称
-              <input id="setNameInput" type="text" value="今日词表" autocomplete="off">
-            </label>
-            <label>
-              粘贴内容
-              <textarea id="importText" spellcheck="false">maison | 房子 | une grande maison | 一栋大房子
+        <!-- 完成画面 -->
+        <div id="completionScreen" class="completion hidden">
+          <div class="completion-icon">🎉</div>
+          <h2>本轮完成！</h2>
+          <div class="completion-stats">
+            <div class="stat-item">
+              <span class="stat-num" id="statTotal">0</span>
+              <span class="stat-label">张全部完成</span>
+            </div>
+            <div class="stat-item stat-again">
+              <span class="stat-num" id="statAgain">0</span>
+              <span class="stat-label">次重练</span>
+            </div>
+          </div>
+          <button id="restartBtn" class="btn btn-primary" type="button">再来一轮</button>
+        </div>
+      </section>
+
+      <!-- ── 导入 ── -->
+      <section id="importView" class="view">
+        <div class="panel">
+          <label>
+            词表名称
+            <input id="setNameInput" type="text" value="今日词表" autocomplete="off">
+          </label>
+          <label>
+            粘贴词表内容
+            <textarea id="importText" spellcheck="false">maison | 房子 | une grande maison | 一栋大房子
 prendre | 拿；乘坐 | Je prends le métro. | 我坐地铁。
 toujours | 总是；仍然 | Il est toujours là. | 他仍然在那里。</textarea>
+          </label>
+          <p class="hint">格式：<code>法语 | 中文 | 法语例句 | 中文例句</code>（后两列可省略）<br>支持 | tab , ; 分隔，每行一张卡片</p>
+          <div class="row-actions">
+            <button id="previewBtn" class="btn btn-secondary" type="button">预览</button>
+            <button id="saveSetBtn" class="btn btn-primary"   type="button">保存词表</button>
+          </div>
+        </div>
+        <div class="preview-list" id="previewList"></div>
+      </section>
+
+      <!-- ── 词表 ── -->
+      <section id="setsView" class="view">
+        <div class="list-header">
+          <h2>本地词表</h2>
+          <button id="newSampleBtn" class="btn btn-secondary btn-sm" type="button">加入示例</button>
+        </div>
+        <div id="setsList" class="sets-list"></div>
+      </section>
+
+      <!-- ── 备份 ── -->
+      <section id="backupView" class="view">
+        <div class="panel">
+          <h2>备份与恢复</h2>
+          <p class="hint">词表只保存在当前设备浏览器里。换设备或清除缓存前，先导出 JSON。</p>
+          <div class="row-actions">
+            <button id="exportBtn" class="btn btn-primary" type="button">导出 JSON</button>
+            <label class="btn btn-secondary file-label">
+              导入 JSON
+              <input id="importFile" type="file" accept="application/json">
             </label>
-            <p class="hint">支持格式：法语 | 中文 | 法语例句 | 中文例句。也支持 tab、逗号、分号分隔。</p>
-            <div class="row-actions">
-              <button id="previewBtn" class="secondary" type="button">预览</button>
-              <button id="saveSetBtn" class="primary" type="button">保存词表</button>
-            </div>
           </div>
+        </div>
+        <div class="panel">
+          <h3>手机 ↔ 电脑同步方法</h3>
+          <ol class="sync-steps">
+            <li>手机上复习完，点「导出 JSON」</li>
+            <li>通过 AirDrop / iCloud Drive / 微信 传到电脑</li>
+            <li>电脑上点「导入 JSON」更新记录</li>
+            <li>添加新词表后，再导出传回手机</li>
+          </ol>
+        </div>
+      </section>
+    </main>
+  </div>
 
-          <div class="preview-list" id="previewList"></div>
-        </section>
-
-        <section id="setsView" class="view">
-          <div class="list-header">
-            <h2>本地词表</h2>
-            <button id="newSampleBtn" class="secondary" type="button">加入示例</button>
-          </div>
-          <div id="setsList" class="sets-list"></div>
-        </section>
-
-        <section id="backupView" class="view">
-          <div class="panel">
-            <h2>备份</h2>
-            <p class="hint">数据只存在当前浏览器。换手机、清理网站数据或卸载 PWA 前，先导出 JSON。</p>
-            <div class="row-actions">
-              <button id="exportBtn" class="primary" type="button">导出 JSON</button>
-              <label class="file-button">
-                导入 JSON
-                <input id="importFile" type="file" accept="application/json">
-              </label>
-            </div>
-          </div>
-        </section>
-      </main>
-    </div>
-
-    <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js" type="module"></script>
-  </body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" type="module"></script>
+</body>
 </html>
