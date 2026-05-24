@@ -90,6 +90,7 @@ const el = {
   // sets
   setsList: $("setsList"), newSampleBtn: $("newSampleBtn"),
   // backup
+  urlInput: $("urlInput"), fetchUrlBtn: $("fetchUrlBtn"),
   exportBtn: $("exportBtn"), importFile: $("importFile"),
   // toast
   toast: $("toast"),
@@ -406,6 +407,43 @@ async function importData(file) {
   toast(`${sets.length} liste(s) importée(s)`);
 }
 
+async function importFromUrl(url) {
+  if (!url) { toast("Veuillez coller une URL"); return; }
+  try {
+    toast("Récupération en cours…");
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+
+    // Try full JSON export first
+    try {
+      const json = JSON.parse(text);
+      if (Array.isArray(json.sets)) {
+        for (const s of json.sets) await putSet({ ...s, id: s.id || crypto.randomUUID() });
+        await refresh(); startSession(); switchView("reviewView");
+        toast(`${json.sets.length} liste(s) importée(s)`);
+        return;
+      }
+    } catch { /* not JSON, fall through to plain text */ }
+
+    // Plain text — skip comment lines starting with #
+    const cleaned = text.split("\n").filter(l => !l.trim().startsWith("#")).join("\n");
+    const cards = parseCards(cleaned);
+    if (!cards.length) { toast("Aucune carte reconnue dans ce fichier"); return; }
+
+    // Use filename (without extension) as list name
+    const name = decodeURIComponent(url.split("/").pop().replace(/\.[^.]+$/, "").replace(/-/g, " ")) || "Import URL";
+    const now = Date.now();
+    await putSet({ id: crypto.randomUUID(), name, cards, createdAt: now, updatedAt: now });
+    state.activeSetId = null; // let refresh pick the new set
+    await refresh(); startSession(); switchView("reviewView");
+    toast(`${cards.length} cartes importées`);
+  } catch (err) {
+    console.error(err);
+    toast("Erreur — vérifiez l'URL et la connexion");
+  }
+}
+
 // ── Spell check ───────────────────────────────────────────────────────────────
 async function checkSpell() {
   const card = state.sessionDeck[0];
@@ -502,6 +540,10 @@ el.setsList.addEventListener("click", async e => {
   startSession();
   toast("Liste supprimée");
 });
+
+// URL import
+el.fetchUrlBtn.addEventListener("click", () => importFromUrl(el.urlInput.value.trim()));
+el.urlInput.addEventListener("keydown", e => { if (e.key === "Enter") importFromUrl(el.urlInput.value.trim()); });
 
 // Backup
 el.exportBtn.addEventListener("click", exportData);

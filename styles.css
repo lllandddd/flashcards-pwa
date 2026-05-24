@@ -411,6 +411,26 @@ textarea {
 }
 .set-delete:active { background: var(--red-bg); color: var(--red-fg); }
 
+/* ── URL import row ───────────────────────────── */
+.url-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.url-row input {
+  flex: 1;
+  font-size: .78rem;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+.url-row input:focus { border-color: var(--text); }
+
 /* ── Sync steps ───────────────────────────────── */
 .sync-steps { list-style: decimal; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
 .sync-steps li { font-size: .85rem; color: var(--text-2); line-height: 1.5; }
