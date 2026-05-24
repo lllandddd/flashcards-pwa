@@ -407,6 +407,13 @@ async function importData(file) {
   toast(`${sets.length} liste(s) importée(s)`);
 }
 
+// Generate a stable set ID from a URL (same URL → same ID → putSet overwrites)
+function urlToSetId(url) {
+  let h = 0;
+  for (let i = 0; i < url.length; i++) h = (Math.imul(31, h) + url.charCodeAt(i)) | 0;
+  return "url-" + Math.abs(h).toString(36).padStart(8, "0");
+}
+
 async function importFromUrl(url) {
   if (!url) { toast("Veuillez coller une URL"); return; }
   try {
@@ -431,13 +438,16 @@ async function importFromUrl(url) {
     const cards = parseCards(cleaned);
     if (!cards.length) { toast("Aucune carte reconnue dans ce fichier"); return; }
 
-    // Use filename (without extension) as list name
+    // Stable ID from URL → re-importing the same URL overwrites, never duplicates
+    const setId = urlToSetId(url);
     const name = decodeURIComponent(url.split("/").pop().replace(/\.[^.]+$/, "").replace(/-/g, " ")) || "Import URL";
+    const existing = state.sets.find(s => s.id === setId);
     const now = Date.now();
-    await putSet({ id: crypto.randomUUID(), name, cards, createdAt: now, updatedAt: now });
-    state.activeSetId = null; // let refresh pick the new set
+    await putSet({ id: setId, name, cards, createdAt: existing?.createdAt || now, updatedAt: now });
+    state.activeSetId = setId;
     await refresh(); startSession(); switchView("reviewView");
-    toast(`${cards.length} cartes importées`);
+    const action = existing ? "mise à jour" : "importée";
+    toast(`${cards.length} cartes — liste ${action}`);
   } catch (err) {
     console.error(err);
     toast("Erreur — vérifiez l'URL et la connexion");
